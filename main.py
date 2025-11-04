@@ -93,6 +93,26 @@ class ChatResponse(BaseModel):
     response: str
     session_id: str
 
+# OpenAI-compatible models
+class Message(BaseModel):
+    role: str
+    content: str
+
+class OpenAIChatRequest(BaseModel):
+    model: str = "strands-agent"
+    messages: List[Message]
+    temperature: Optional[float] = 0.7
+    max_tokens: Optional[int] = 1000
+    stream: Optional[bool] = False
+
+class OpenAIChatResponse(BaseModel):
+    id: str
+    object: str = "chat.completion"
+    created: int
+    model: str
+    choices: List[Dict[str, Any]]
+    usage: Dict[str, int]
+
 class ToolInfo(BaseModel):
     name: str
     description: str
@@ -180,6 +200,78 @@ async def chat_simple(message: str):
         return {"response": str(result)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Agent error: {str(e)}")
+
+@app.post("/v1/chat/completions", response_model=OpenAIChatResponse)
+async def openai_chat_completions(request: OpenAIChatRequest):
+    """
+    OpenAI-compatible chat completions endpoint
+    Compatible with Open WebUI and other OpenAI clients
+    """
+    if not agent_instance:
+        raise HTTPException(status_code=503, detail="Agent not initialized")
+    
+    try:
+        # Extract the last user message
+        user_messages = [msg for msg in request.messages if msg.role == "user"]
+        if not user_messages:
+            raise HTTPException(status_code=400, detail="No user message found")
+        
+        last_message = user_messages[-1].content
+        
+        # Run the agent
+        result = agent_instance(last_message, session_id="openai-compat")
+        response_text = str(result)
+        
+        # Build OpenAI-compatible response
+        import time
+        import uuid
+        
+        return {
+            "id": f"chatcmpl-{uuid.uuid4().hex[:8]}",
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": request.model,
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": response_text
+                    },
+                    "finish_reason": "stop"
+                }
+            ],
+            "usage": {
+                "prompt_tokens": len(last_message.split()),
+                "completion_tokens": len(response_text.split()),
+                "total_tokens": len(last_message.split()) + len(response_text.split())
+            }
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Agent error: {str(e)}")
+
+@app.get("/v1/models")
+async def list_models():
+    """
+    OpenAI-compatible models endpoint
+    Lists available models for Open WebUI
+    """
+    import time
+    
+    return {
+        "object": "list",
+        "data": [
+            {
+                "id": "strands-agent",
+                "object": "model",
+                "created": int(time.time()),
+                "owned_by": "strands",
+                "permission": [],
+                "root": "strands-agent",
+                "parent": None
+            }
+        ]
+    }
 
 if __name__ == "__main__":
     import uvicorn
