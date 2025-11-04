@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 
 # Import Strands
 from strands import Agent, tool
-from strands.models import OpenAIModel
+from strands.models.openai import OpenAIModel
 from strands_tools import calculator, current_time
 
 # Global agent instance
@@ -47,8 +47,12 @@ async def lifespan(app: FastAPI):
     # Create agent with tools
     agent_instance = Agent(
         model=OpenAIModel(
+            client_args={"api_key": openai_api_key},
             model_id="gpt-4o-mini",
-            api_key=openai_api_key
+            params={
+                "max_tokens": 1000,
+                "temperature": 0.7
+            }
         ),
         tools=[calculator, current_time, send_sms],
         system_prompt="""You are a helpful AI assistant with access to:
